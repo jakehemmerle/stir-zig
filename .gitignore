@@ -7,3 +7,7 @@ outputs/temp/
 *.pdf
 scripts/__pycache__/
 .DS_Store
+
+# Zig
+.zig-cache/
+zig-out/

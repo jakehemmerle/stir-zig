@@ -5,6 +5,7 @@ use ark_crypto_primitives::{
 use ark_ff::{FftField, PrimeField};
 use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, Polynomial};
 use derivative::Derivative;
+use std::time::Instant;
 
 use crate::{
     ldt::Prover,
@@ -14,6 +15,21 @@ use crate::{
 };
 
 use crate::{domain::Domain, parameters::Parameters};
+
+/// Enable or disable profiling output
+pub static PROFILING_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn enable_profiling() {
+    PROFILING_ENABLED.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn disable_profiling() {
+    PROFILING_ENABLED.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn is_profiling() -> bool {
+    PROFILING_ENABLED.load(std::sync::atomic::Ordering::SeqCst)
+}
 
 #[derive(Derivative)]
 #[derivative(Clone(bound = "F: Clone"))]
@@ -84,17 +100,27 @@ where
         )
         .unwrap();
 
+        let fft_start = Instant::now();
         let evals = witness_polynomial
             .evaluate_over_domain_by_ref(domain.backing_domain)
             .evals;
         let folded_evals = utils::stack_evaluations(evals, self.parameters.folding_factor);
+        let fft_time = fft_start.elapsed();
 
+        let merkle_start = Instant::now();
         let merkle_tree = MerkleTree::<MerkleConfig>::new(
             &self.parameters.leaf_hash_params,
             &self.parameters.two_to_one_params,
             &folded_evals,
         )
         .unwrap();
+        let merkle_time = merkle_start.elapsed();
+
+        if is_profiling() {
+            println!("      [commit] FFT: {:.2}ms, Merkle: {:.2}ms",
+                fft_time.as_secs_f64() * 1000.0,
+                merkle_time.as_secs_f64() * 1000.0);
+        }
 
         let initial_commitment = merkle_tree.root();
 
@@ -129,12 +155,18 @@ where
         };
 
         let mut round_proofs = vec![];
-        for _ in 0..self.parameters.num_rounds {
+        for round_num in 0..self.parameters.num_rounds {
+            let round_start = Instant::now();
             let (new_witness, round_proof) = self.round(&mut sponge, &witness);
+            let round_time = round_start.elapsed();
+            if is_profiling() {
+                println!("      [prove] Round {}: {:.2}ms", round_num, round_time.as_secs_f64() * 1000.0);
+            }
             witness = new_witness;
             round_proofs.push(round_proof);
         }
 
+        let final_fold_start = Instant::now();
         let final_polynomial = poly_utils::folding::poly_fold(
             &witness.polynomial,
             self.parameters.folding_factor,
@@ -158,11 +190,20 @@ where
             .unwrap();
 
         let queries_to_final = (queries_to_final_ans, queries_to_final_proof);
+        let final_fold_time = final_fold_start.elapsed();
 
+        let pow_start = Instant::now();
         let pow_nonce = utils::proof_of_work(
             &mut sponge,
             self.parameters.pow_bits[self.parameters.num_rounds],
         );
+        let pow_time = pow_start.elapsed();
+
+        if is_profiling() {
+            println!("      [prove] Final fold: {:.2}ms, PoW: {:.2}ms",
+                final_fold_time.as_secs_f64() * 1000.0,
+                pow_time.as_secs_f64() * 1000.0);
+        }
 
         Proof {
             round_proofs,
@@ -196,20 +237,27 @@ where
         WitnessExtended<F, MerkleConfig>,
         RoundProof<F, MerkleConfig>,
     ) {
+        let round_start = Instant::now();
+
+        let fold_start = Instant::now();
         let g_poly = poly_utils::folding::poly_fold(
             &witness.polynomial,
             self.parameters.folding_factor,
             witness.folding_randomness,
         );
+        let fold_time = fold_start.elapsed();
 
         // TODO: For now, I am FFTing
+        let fft_start = Instant::now();
         let g_domain = witness.domain.scale_offset(2);
         let g_evaluations = g_poly
             .evaluate_over_domain_by_ref(g_domain.backing_domain)
             .evals;
-
         let g_folded_evaluations =
             utils::stack_evaluations(g_evaluations, self.parameters.folding_factor);
+        let fft_time = fft_start.elapsed();
+
+        let merkle_start = Instant::now();
         let g_merkle = MerkleTree::<MerkleConfig>::new(
             &self.parameters.leaf_hash_params,
             &self.parameters.two_to_one_params,
@@ -217,6 +265,8 @@ where
         )
         .unwrap();
         let g_root = g_merkle.root();
+        let merkle_time = merkle_start.elapsed();
+
         sponge.absorb(&g_root);
 
         // Out of domain sample
@@ -240,7 +290,9 @@ where
             (0..num_repetitions).map(|_| utils::squeeze_integer(sponge, scaling_factor)),
         );
 
+        let pow_start = Instant::now();
         let pow_nonce = utils::proof_of_work(sponge, self.parameters.pow_bits[witness.num_round]);
+        let pow_time = pow_start.elapsed();
 
         // Not used
         let _shake_randomness: F = sponge.squeeze_field_elements(1)[0];
@@ -289,6 +341,7 @@ where
             .chain(stir_randomness.iter().cloned())
             .collect();
 
+        let interp_start = Instant::now();
         let ans_polynomial = poly_utils::interpolation::naive_interpolation(&quotient_answers);
 
         let mut shake_polynomial = DensePolynomial::from_coefficients_vec(vec![]);
@@ -297,8 +350,10 @@ where
             let den_polynomial = DensePolynomial::from_coefficients_vec(vec![-x, F::ONE]);
             shake_polynomial = shake_polynomial + (&num_polynomial / &den_polynomial);
         }
+        let interp_time = interp_start.elapsed();
 
         // The quotient_polynomial is then computed
+        let div_start = Instant::now();
         let vanishing_poly = poly_utils::interpolation::vanishing_poly(&quotient_set);
         // Resue the ans_polynomial to compute the quotient_polynomial
         let numerator = &g_poly + &ans_polynomial;
@@ -312,6 +367,19 @@ where
         );
 
         let witness_polynomial = &quotient_polynomial * &scaling_polynomial;
+        let div_time = div_start.elapsed();
+
+        let round_total = round_start.elapsed();
+        if is_profiling() {
+            println!("        [round] fold:{:.1}ms fft:{:.1}ms merkle:{:.1}ms pow:{:.1}ms interp:{:.1}ms div:{:.1}ms total:{:.1}ms",
+                fold_time.as_secs_f64() * 1000.0,
+                fft_time.as_secs_f64() * 1000.0,
+                merkle_time.as_secs_f64() * 1000.0,
+                pow_time.as_secs_f64() * 1000.0,
+                interp_time.as_secs_f64() * 1000.0,
+                div_time.as_secs_f64() * 1000.0,
+                round_total.as_secs_f64() * 1000.0);
+        }
 
         (
             WitnessExtended {

@@ -46,7 +46,7 @@ struct Args {
 
 fn main() {
     type F = fields::Field192;
-    use merkle_tree::sha3 as merkle_tree;
+    use merkle_tree::blake3 as merkle_tree;
 
     let args = Args::parse();
 

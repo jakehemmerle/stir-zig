@@ -14,7 +14,7 @@ use stir::{
     },
     ldt::{LowDegreeTest, Prover, Verifier},
     parameters::{Parameters, SoundnessType},
-    stir::Stir,
+    stir::{prover::enable_profiling, Stir},
 };
 
 use clap::Parser;
@@ -42,13 +42,20 @@ struct Args {
 
     #[arg(short = 'k', long, default_value = "16")]
     folding_factor: usize,
+
+    #[arg(long, default_value = "false")]
+    profile: bool,
 }
 
 fn main() {
     type F = fields::Field192;
-    use merkle_tree::sha3 as merkle_tree;
+    use merkle_tree::blake3 as merkle_tree;
 
     let args = Args::parse();
+
+    if args.profile {
+        enable_profiling();
+    }
 
     let security_level = args.security_level;
     let protocol_security_level = args.protocol_security_level;
