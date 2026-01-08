@@ -1,182 +1,93 @@
-# STIR: Reed-Solomon Proximity Testing with Fewer Queries
+# Ralph Ziggum: STIR Rust-to-Zig Translation Experiment
 
-This repository contains:
-1. **Rust implementation** - The original academic prototype using [arkworks](https://arkworks.rs)
-2. **Zig implementation** - An experimental translation of STIR to Zig
+> **WARNING: This code is heavily vibe-coded.** It could be completely wrong and should not be used for anything other than failure analysis. This was an experiment in AI-assisted code translation, not a production implementation.
 
-Based on [STIR: Reed-Solomon Proximity Testing with Fewer Queries](https://eprint.iacr.org/2024/390) by Gal Arnon, Alessandro Chiesa, Giacomo Fenzi, and Eylon Yogev. See also the [blog post](https://gfenzi.io/papers/stir).
+## Overview
 
-## Zig Implementation
+This experiment used **Ralph Wiggum** (or rather Ralph Ziggum) - an iterative AI-assisted code translation technique - to translate the [STIR](https://github.com/stir-protocol/stir) Rust implementation into Zig. The goal was to explore whether a Ralph Wiggum-translated Zig implementation could achieve correctness that was equivalent (or close to) the Rust version and/or better performance.
 
-The Zig implementation is a **direct translation** of the Rust STIR protocol.
+**Tools used:**
+- Claude Code (CLI)
+- Claude Opus 4.5
 
-**WARNING:** This Zig code is:
-- Untested beyond basic smoke tests
-- "Vibe-coded" - translated without rigorous verification
-- NOT suitable for production use
-- Intended for experimentation and benchmarking only
+**Versions tested:**
+- Zig: 0.16.0-dev
+- Rust: 1.92.0
 
-The Zig implementation uses:
-- **Field192** (same 192-bit field as Rust) - configurable in `field.zig`
-- **Blake3** for both Merkle trees and Fiat-Shamir transcript
-- Standard library implementations (no external dependencies)
+## Results
 
-## Benchmark Comparison
+**Benchmark: Degree 2^18, Folding Factor 16, 128-bit security**
 
-This is now an **apples-to-apples comparison** using the same Field192.
+| Metric | Rust | Zig | Ratio |
+|--------|------|-----|-------|
+| Prover Time | 640.65 ms | 1,385.52 ms | **Rust 2.2x faster** |
+| Verifier Time | 1.44 ms | 8.22 ms | **Rust 5.7x faster** |
+| Proof Size | 74,707 bytes | 56,640 bytes | Different (possible bug) |
+| Prover Hashes | 229,373 | 229,373 | Equal |
 
-### Test Parameters
-- Degree: 2^12 (4096)
-- Stopping degree: 2^6 (64)
-- Folding factor: 16
-- Security level: 128 bits
-- 1 STIR round
+### Conclusion: The Zig implementation is significantly slower and likely incorrect.
 
-### Prover Profiling (Round 0 Breakdown)
+The proof size difference suggests the implementations may not be equivalent. The matching hash counts for the prover are encouraging but not conclusive.
 
-| Component | Zig (Field192) | Rust (Field192) | Notes |
-|-----------|----------------|-----------------|-------|
-| Fold | 1.2 ms | 0.2 ms | |
-| FFT | 112.5 ms | 1.0 ms | Zig: commit 242.5ms |
-| Merkle | 0.5 ms | 0.8 ms | Blake3 vs SHA3 |
-| **PoW (22-bit)** | **24.2 ms** | **4544.9 ms** | **Stack vs heap allocation** |
-| Interpolation | 33.6 ms | 1.0 ms | |
-| Division | 15.9 ms | 0.4 ms | |
+**Do not use this code for anything other than studying what went wrong.**
 
-### End-to-End Results
+## What Was Built
 
-| Metric | Zig (Field192) | Rust (Field192) |
-|--------|----------------|-----------------|
-| Commit time | 243.5 ms | 4.5 ms |
-| Prove time | 219.4 ms | 4549 ms |
-| **Total prover** | **462.9 ms** | **4627 ms** |
-| Verifier time | 3.98 ms | 2.09 ms |
-| Proof size | ~32 KB | ~46 KB |
-| Prover hashes | 3070 | 3070 |
+The Zig implementation includes:
+- **Field arithmetic** (`src/field.zig`) - 192-bit prime field with Montgomery representation
+- **FFT** (`src/fft.zig`) - Cooley-Tukey radix-2 FFT
+- **Merkle trees** (`src/merkle.zig`) - Blake3-based Merkle tree
+- **Polynomial operations** (`src/polynomial.zig`) - Evaluation, interpolation, folding
+- **Prover/Verifier** (`src/prover.zig`, `src/verifier.zig`) - STIR protocol
+- **Fiat-Shamir transcript** (`src/transcript.zig`) - Blake3-based
 
-### Analysis
+## Alignment Efforts
 
-The **10x prover speedup** primarily comes from:
+To enable comparison, we attempted to align the implementations:
 
-1. **Proof-of-Work allocation overhead**: The Rust Blake3 sponge allocates heap memory on every `absorb()` and `squeeze_bytes()` call. For 22-bit PoW (~4 million iterations), this creates 12+ million allocations. The Zig transcript uses stack-allocated buffers with zero heap allocations in the hot loop. (Zig: 24ms vs Rust: 4545ms)
+1. **Hash function**: Changed Rust from SHA3-256 to Blake3 (matching Zig)
+2. **Field arithmetic**: Implemented Montgomery representation in Zig (attempting to match Rust's ark-ff)
+3. **Benchmark parameters**: Aligned degree (2^18), folding factor (16), security level (128-bit)
 
-2. **Merkle hashing**: Blake3 vs SHA3.
+## Possible Reasons for Performance Gap
 
-However, Zig's Field192 arithmetic is notably **slower** than Rust's arkworks:
-- FFT: 112.5ms (Zig) vs 1.0ms (Rust) - ~100x slower
-- This is due to Zig using naive schoolbook multiplication and Fermat's Little Theorem for inversion, while arkworks uses optimized Montgomery representation
+These are hypotheses, not verified causes:
 
-To switch Zig to the faster Field64 (for experimentation), change `pub const Field = Field192;` to `pub const Field = Field64;` in `field.zig`.
+1. **ASM-Optimized Field Arithmetic**: Rust's `ark-ff` uses x86-64 assembly. Zig uses pure Zig.
+2. **FFT Implementation**: Rust's `ark-poly` may have optimizations the Zig version lacks.
+3. **Batch Inversion**: Rust may use Montgomery's trick; Zig performs individual inversions.
 
-## Building and Running
-
-### Prerequisites
-
-- **Zig**: 0.14+ (tested with 0.14.0)
-- **Rust**: 1.70+ with Cargo
-
-### Zig
+## Running the Benchmarks
 
 ```bash
-# Build
-zig build -Doptimize=ReleaseFast
+# Zig benchmark
+zig build bench
 
-# Run benchmarks (component + protocol)
-./zig-out/bin/stir-bench
-
-# Run protocol benchmarks only
-./zig-out/bin/stir-bench --protocol-only
-
-# Custom parameters
-./zig-out/bin/stir-bench -d 12 -f 6 -k 16 --reps 100
-
-# Run tests
-zig build test
+# Rust benchmark (with Blake3)
+cargo run --release --bin stir -- -d 18 -k 16 --reps 10
 ```
 
-**Benchmark options:**
-```
--d, --degree <N>         Initial degree as log2 (default: 12)
--f, --final-degree <N>   Final degree as log2 (default: 6)
--k, --folding-factor <N> Folding factor (default: 16)
---reps <N>               Verifier repetitions (default: 100)
---protocol-only          Run only protocol benchmarks
---components-only        Run only component benchmarks
-```
-
-### Rust
-
-```bash
-# Build
-cargo build --release
-
-# Run STIR benchmark
-cargo run --release --bin stir -- -d 12 -f 6 -k 16 --reps 100
-
-# Run with profiling output
-cargo run --release --bin stir -- -d 12 -f 6 -k 16 --reps 100 --profile
-
-# Run FRI benchmark (for comparison)
-cargo run --release --bin fri -- -d 12 -f 6 -k 16 --reps 100
-```
-
-**Benchmark options:**
-```
--d, --initial-degree <N>  Initial degree as log2 (default: 20)
--f, --final-degree <N>    Final degree as log2 (default: 6)
--k, --folding-factor <N>  Folding factor (default: 16)
--r, --rate <N>            Starting rate (default: 2)
---reps <N>                Verifier repetitions (default: 1000)
---profile                 Enable detailed profiling output
-```
-
-## Reproducing Benchmarks
-
-To reproduce the head-to-head comparison:
-
-```bash
-# Terminal 1: Run Zig benchmark
-zig build -Doptimize=ReleaseFast
-./zig-out/bin/stir-bench -d 12 -f 6 -k 16 --reps 100 --protocol-only
-
-# Terminal 2: Run Rust benchmark with profiling
-cargo build --release
-./target/release/stir -d 12 -f 6 -k 16 --reps 100 --profile
-```
-
-## Project Structure
+## Files
 
 ```
 src/
-├── bin/                  # Rust binaries
-│   ├── stir.rs          # STIR benchmark
-│   ├── fri.rs           # FRI benchmark
-│   └── ...
-├── stir/                 # Rust STIR implementation
-├── fri/                  # Rust FRI implementation
-├── crypto/               # Rust crypto primitives
-│
-├── benchmark.zig         # Zig benchmarks
-├── prover.zig           # Zig STIR prover
-├── verifier.zig         # Zig STIR verifier
-├── field.zig            # Zig field arithmetic (Field64 + Field192)
-├── fft.zig              # Zig FFT
-├── merkle.zig           # Zig Merkle tree (Blake3)
-├── transcript.zig       # Zig Fiat-Shamir transcript
-├── polynomial.zig       # Zig polynomial operations
-├── folding.zig          # Zig polynomial folding
-├── interpolation.zig    # Zig interpolation
-├── quotient.zig         # Zig quotient computation
-├── domain.zig           # Zig evaluation domains
-├── parameters.zig       # Zig protocol parameters
-└── types.zig            # Zig type definitions
+├── field.zig          # Montgomery field arithmetic
+├── fft.zig            # FFT
+├── polynomial.zig     # Polynomial operations
+├── merkle.zig         # Blake3 Merkle tree
+├── prover.zig         # STIR prover
+├── verifier.zig       # STIR verifier
+├── transcript.zig     # Fiat-Shamir transcript
+├── domain.zig         # Evaluation domains
+├── folding.zig        # Polynomial folding
+├── parameters.zig     # Protocol parameters
+├── quotient.zig       # Quotient polynomial computation
+├── interpolation.zig  # Lagrange interpolation
+├── types.zig          # Shared type definitions
+├── utils.zig          # Utility functions
+└── benchmark.zig      # Benchmark harness
 ```
 
-## License
+---
 
-Licensed under either of Apache License, Version 2.0 or MIT license at your option.
-
-## Acknowledgments
-
-- Original STIR paper authors: Gal Arnon, Alessandro Chiesa, Giacomo Fenzi, Eylon Yogev
-- [arkworks](https://arkworks.rs) ecosystem for the Rust implementation foundation
+*This experiment was conducted using Claude Code with Opus 4.5, January 2025.*
