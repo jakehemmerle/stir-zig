@@ -1,10 +1,10 @@
 # Ralph Ziggum: STIR Rust-to-Zig Translation Experiment
 
-> **WARNING: This code is heavily vibe-coded.** It could be completely wrong and should not be used for anything other than failure analysis. This was an experiment in AI-assisted code translation, not a production implementation.
+> **WARNING: This code is completely vibe-coded.** It could be completely wrong and should not be used for anything other than failure analysis, and I cannot even confirm that the benchmarks are accurate. This was an experiment in AI-assisted code translation, not a production implementation.
 
 ## Overview
 
-This experiment used **Ralph Wiggum** (or rather Ralph Ziggum) - an iterative AI-assisted code translation technique - to translate the [STIR](https://github.com/stir-protocol/stir) Rust implementation into Zig. The goal was to explore whether a Ralph Wiggum-translated Zig implementation could achieve correctness that was equivalent (or close to) the Rust version and/or better performance.
+This experiment used **Ralph Wiggum** (we should call it Ralph Ziggum) - an iterative AI-assisted code translation technique - to translate the [STIR](https://github.com/stir-protocol/stir) Rust implementation into Zig. The goal was to explore whether a Ralph Wiggum-translated Zig implementation could achieve correctness that was equivalent (or close to) the Rust version and/or better performance.
 
 **Tools used:**
 - Claude Code (CLI)
